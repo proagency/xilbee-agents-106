@@ -19,9 +19,9 @@ export default async function RootLayout({ children }: { children: React.ReactNo
               <Link href={session ? "/dashboard" : "/login"} className="font-semibold">xilbee-agents-106</Link>
               {session && (
                 <div className="flex items-center gap-3 text-sm">
-                  <Link href="/dashboard" className="link">Dashboard</Link>
-                  <Link href="/clients" className="link">Clients</Link>
-                  <Link href="/billing" className="link">Billing</Link>
+                  <Link href="/dashboard" className="btn">Dashboard</Link>
+                  <Link href="/clients" className="btn">Clients</Link>
+                  <Link href="/billing" className="btn">Billing</Link>
                 </div>
               )}
             </div>
