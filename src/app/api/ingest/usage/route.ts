@@ -3,16 +3,75 @@ import { prisma } from "@lib/db"
 import { Prisma } from "@prisma/client"
 import { INGEST_SHARED_KEY } from "@lib/config"
 
+// Helpers to safely coerce values
+function decOrNull(v: unknown): Prisma.Decimal | null {
+  // Accept numbers and numeric strings; reject null/undefined/""/NaN
+  if (v === null || v === undefined) return null
+  if (typeof v === "string") {
+    const s = v.trim()
+    if (!s) return null
+    const n = Number(s)
+    if (!Number.isFinite(n)) return null
+    return new Prisma.Decimal(s)
+  }
+  if (typeof v === "number") {
+    if (!Number.isFinite(v)) return null
+    return new Prisma.Decimal(v.toString())
+  }
+  return null
+}
+
+function intOrNull(v: unknown): number | null {
+  if (v === null || v === undefined) return null
+  if (typeof v === "string") {
+    const s = v.trim()
+    if (!s) return null
+    const n = Number(s)
+    return Number.isFinite(n) ? Math.trunc(n) : null
+  }
+  if (typeof v === "number") {
+    return Number.isFinite(v) ? Math.trunc(v) : null
+  }
+  return null
+}
+
+function parseDateOrNow(v: unknown): Date {
+  if (typeof v === "string") {
+    const s = v.trim()
+    if (s) {
+      const d = new Date(s)
+      if (!isNaN(d.getTime())) return d
+    }
+  }
+  // Fallback: now (UTC)
+  return new Date()
+}
+
 export async function POST(req: Request) {
+  // Auth header
   const key = req.headers.get("x-ingest-key")
   if (!INGEST_SHARED_KEY || key !== INGEST_SHARED_KEY) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 
-  const body = await req.json()
+  let body: any
+  try {
+    body = await req.json()
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
+  }
 
-  const clientName: string = body.client_name
-  if (!clientName) return NextResponse.json({ error: "client_name required" }, { status: 400 })
+  // Required: client_name
+  const clientName = typeof body.client_name === "string" ? body.client_name.trim() : ""
+  if (!clientName) {
+    return NextResponse.json({ error: "client_name required" }, { status: 400 })
+  }
+
+  // Required: session_id (unique key for idempotency)
+  const sessionId = typeof body.session_id === "string" ? body.session_id.trim() : ""
+  if (!sessionId) {
+    return NextResponse.json({ error: "session_id required" }, { status: 400 })
+  }
 
   // Upsert client by name
   const client = await prisma.client.upsert({
@@ -21,47 +80,56 @@ export async function POST(req: Request) {
     create: { name: clientName },
   })
 
+  // Optional: agent upsert/lookup
   let agentId: string | null = null
-  if (body.agent_id) {
-    // Try find agent by internal id or external id for this client
+  const agentKeyRaw = body.agent_id
+  const agentKey = typeof agentKeyRaw === "string" ? agentKeyRaw.trim() : ""
+  if (agentKey) {
     const existing = await prisma.agent.findFirst({
       where: {
         clientId: client.id,
-        OR: [{ id: body.agent_id }, { externalAgentId: body.agent_id }],
+        OR: [{ id: agentKey }, { externalAgentId: agentKey }],
       },
     })
     if (existing) {
       agentId = existing.id
     } else {
-      const a = await prisma.agent.create({
-        data: { clientId: client.id, externalAgentId: String(body.agent_id), label: String(body.agent_id) },
+      const created = await prisma.agent.create({
+        data: { clientId: client.id, externalAgentId: agentKey, label: agentKey },
       })
-      agentId = a.id
+      agentId = created.id
     }
   }
 
-  const sessionId: string = body.session_id
+  // Build the upsert data safely
   const data: any = {
     clientId: client.id,
-    agentId,
-    timestamp: new Date(body.timestamp || new Date().toISOString()),
-    connectionDurationSec: body.connection_duration ?? null,
-    callCreditsUsed: body.call_credits_used != null ? new Prisma.Decimal(String(body.call_credits_used)) : null,
-    llmCreditsUsed: body.llm_credits_used != null ? new Prisma.Decimal(String(body.llm_credits_used)) : null,
-    llmRateUsdPerMin: body.llm_rate_usd_per_min != null ? new Prisma.Decimal(String(body.llm_rate_usd_per_min)) : null,
-    llmTotalCostUsd: body.llm_total_cost_usd != null ? new Prisma.Decimal(String(body.llm_total_cost_usd)) : null,
+    agentId: agentId ?? null,
+    timestamp: parseDateOrNow(body.timestamp),
+    connectionDurationSec: intOrNull(body.connection_duration),
+    callCreditsUsed: decOrNull(body.call_credits_used),
+    llmCreditsUsed: decOrNull(body.llm_credits_used),
+    llmRateUsdPerMin: decOrNull(body.llm_rate_usd_per_min),
+    llmTotalCostUsd: decOrNull(body.llm_total_cost_usd),
     sessionId,
-    contact: body.contact ?? null,
-    notes: body.notes ?? null,
-    totalCreditsConsumed: body.total_credits_consumed != null ? new Prisma.Decimal(String(body.total_credits_consumed)) : null,
-    raw: body,
+    contact: typeof body.contact === "string" && body.contact.trim() ? body.contact.trim() : null,
+    notes: typeof body.notes === "string" && body.notes.trim() ? body.notes.trim() : null,
+    totalCreditsConsumed: decOrNull(body.total_credits_consumed),
+    raw: body, // keep original payload
   }
 
-  await prisma.usageLog.upsert({
-    where: { sessionId },
-    update: data,
-    create: data,
-  })
-
-  return NextResponse.json({ ok: true })
+  try {
+    await prisma.usageLog.upsert({
+      where: { sessionId }, // unique on model
+      update: data,
+      create: data,
+    })
+    return NextResponse.json({ ok: true })
+  } catch (e: any) {
+    // Surface a helpful error for debugging payloads
+    return NextResponse.json(
+      { error: "Prisma upsert failed", detail: String(e) },
+      { status: 400 }
+    )
+  }
 }
