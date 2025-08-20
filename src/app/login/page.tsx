@@ -12,11 +12,11 @@ export default function LoginPage({ searchParams }: { searchParams: Record<strin
       <form className="card space-y-3" method="POST" action="/api/auth/login">
         <div>
           <label className="block text-sm mb-1">Email</label>
-          <input name="email" type="email" className="input" required defaultValue="admin@xilbee.com" />
+          <input name="email" type="email" className="input" required />
         </div>
         <div>
           <label className="block text-sm mb-1">Password</label>
-          <input name="password" type="password" className="input" required defaultValue="admin123456" />
+          <input name="password" type="password" className="input" required />
         </div>
 
         {/* NEW: preserve the destination */}
