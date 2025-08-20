@@ -3,7 +3,7 @@ import Link from "next/link"
 import { getSession } from "@lib/auth"
 
 export const metadata = {
-  title: "xilbee-agents-106",
+  title: "Xilbee AI",
   description: "Admin portal",
 }
 
@@ -16,7 +16,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         <nav className="border-b bg-white">
           <div className="mx-auto max-w-6xl px-4 py-3 flex items-center justify-between">
             <div className="flex items-center gap-4">
-              <Link href={session ? "/dashboard" : "/login"} className="font-semibold">xilbee-agents-106</Link>
+              <Link href={session ? "/dashboard" : "/login"} className="font-semibold">XILBEE AI</Link>
               {session && (
                 <div className="flex items-center gap-3 text-sm">
                   <Link href="/dashboard" className="btn">Dashboard</Link>
