@@ -1,0 +1,133 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum ClientStatus {
+  ACTIVE
+  PAUSED
+  ARCHIVED
+}
+enum AgentStatus  {
+  ACTIVE
+  ARCHIVED
+}
+enum PaymentStatus {
+  INITIATED
+  SUCCEEDED
+  FAILED
+}
+
+model AdminUser {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  passwordHash String
+  createdAt    DateTime @default(now())
+}
+
+model Client {
+  id                         String        @id @default(uuid())
+  name                       String        @unique
+  status                     ClientStatus  @default(ACTIVE)
+  createdAt                  DateTime      @default(now())
+
+  // Stripe / billing
+  stripeCustomerId           String?       @unique
+  stripeDefaultPaymentMethod String?
+  currency                   String        @default("USD")
+  baseMonthlyFee             Decimal?      @db.Decimal(18, 6)
+  monthlyCreditLimit         Decimal?      @db.Decimal(18, 6)
+  overageRatePerCredit       Decimal?      @db.Decimal(18, 6)
+  usageUnitLabel             String?
+  billingAnchorDay           Int?
+  billingTimezone            String?
+  nextChargeDate             DateTime?
+  billingContactName         String?
+  billingContactEmail        String?
+  billingAddressLine1        String?
+  billingAddressCity         String?
+  billingAddressState        String?
+  billingAddressPostalCode   String?
+  billingAddressCountry      String?
+  taxId                      String?
+  invoiceExtraEmails         String?
+
+  agents     Agent[]
+  usageLogs  UsageLog[]
+  summaries  MonthlySummary[]
+  payments   Payment[]
+}
+
+model Agent {
+  id              String       @id @default(uuid())
+  clientId        String
+  client          Client       @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  externalAgentId String?
+  label           String?
+  status          AgentStatus  @default(ACTIVE)
+  usageLogs       UsageLog[]
+
+  @@index([clientId])
+}
+
+model UsageLog {
+  id                    String   @id @default(uuid())
+  clientId              String
+  agentId               String?
+  timestamp             DateTime
+  connectionDurationSec Int?
+  callCreditsUsed       Decimal? @db.Decimal(18, 6)
+  llmCreditsUsed        Decimal? @db.Decimal(18, 6)
+  llmRateUsdPerMin      Decimal? @db.Decimal(18, 6)
+  llmTotalCostUsd       Decimal? @db.Decimal(18, 6)
+  sessionId             String   @unique
+  contact               String?
+  notes                 String?
+  totalCreditsConsumed  Decimal? @db.Decimal(18, 6)
+  raw                   Json?
+
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  agent  Agent? @relation(fields: [agentId], references: [id])
+
+  @@index([timestamp])
+  @@index([clientId])
+}
+
+model MonthlySummary {
+  id                String   @id @default(uuid())
+  clientId          String
+  client            Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  year              Int
+  month             Int
+  totalUsage        Decimal? @db.Decimal(18, 6)
+  limit             Decimal? @db.Decimal(18, 6)
+  overage           Decimal? @db.Decimal(18, 6)
+  chargeAmount      Decimal? @db.Decimal(18, 6)
+  subscriptionDate  DateTime?
+  lastChargeDate    DateTime?
+  lastPaymentStatus String?
+  nextChargeDate    DateTime?
+  raw               Json?
+
+  @@unique([clientId, year, month])
+  @@index([clientId])
+}
+
+model Payment {
+  id               String        @id @default(uuid())
+  clientId         String
+  client           Client        @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  amount           BigInt
+  currency         String        @default("USD")
+  paymentMethodId  String
+  status           PaymentStatus @default(INITIATED)
+  externalChargeId String?
+  createdAt        DateTime      @default(now())
+  metadata         Json?
+
+  @@index([clientId])
+}
