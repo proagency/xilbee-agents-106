@@ -18,6 +18,10 @@ export default function LoginPage({ searchParams }: { searchParams: Record<strin
           <label className="block text-sm mb-1">Password</label>
           <input name="password" type="password" className="input" required defaultValue="admin123456" />
         </div>
+
+        {/* NEW: preserve the destination */}
+        <input type="hidden" name="next" value={searchParams?.next || "/dashboard"} />
+
         <button className="btn btn-primary">Login</button>
       </form>
     </div>

@@ -1,3 +1,4 @@
+// src/middleware.ts
 import { NextResponse, NextRequest } from "next/server"
 import { jwtVerify } from "jose"
 
@@ -13,20 +14,25 @@ const PUBLIC_PATHS = [
   "/favicon.ico",
 ]
 
+// Helper: only treat exact path or subpaths as public
 function isPublicPath(pathname: string) {
-  return PUBLIC_PATHS.some((p) => pathname.startsWith(p))
+  return PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(p + "/"))
 }
 
 export async function middleware(req: NextRequest) {
-  const { pathname } = req.nextUrl
+  const { pathname, search } = req.nextUrl
+
   if (isPublicPath(pathname)) {
     return NextResponse.next()
   }
 
   const token = req.cookies.get("session")?.value
   if (!token) {
-    const url = new URL("/login", req.url)
-    url.searchParams.set("next", pathname)
+    // Use req.nextUrl.clone() so the redirect uses the same origin (Railway domain)
+    const url = req.nextUrl.clone()
+    url.pathname = "/login"
+    // preserve the full destination (path + query) so we can bounce back after login
+    url.searchParams.set("next", pathname + (search || ""))
     return NextResponse.redirect(url)
   }
 
@@ -35,7 +41,8 @@ export async function middleware(req: NextRequest) {
     await jwtVerify(token, secret)
     return NextResponse.next()
   } catch {
-    const url = new URL("/login", req.url)
+    const url = req.nextUrl.clone()
+    url.pathname = "/login"
     url.searchParams.set("expired", "1")
     return NextResponse.redirect(url)
   }
