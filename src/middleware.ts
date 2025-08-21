@@ -12,6 +12,11 @@ const PUBLIC_PATHS = [
   "/api/health",
   "/_next",
   "/favicon.ico",
+  "/agents/[id]",
+  "/api/admin/agents",
+  "/api/admin/clients",
+  "/api/admin/clients/[id]/billing",
+  "/clients/[id]"
 ]
 
 // Helper: only treat exact path or subpaths as public
